@@ -9,24 +9,18 @@ import scala.collection.mutable.ListBuffer
  */
 trait MarkovAppTrait /*extends App*/ {
 
-  case class MarkovToken(left: String, right: String)
+  case class MarkovToken(left: String, right: String, end: Boolean = false)
 
   implicit class MarkovString(string: String)(implicit buf: ListBuffer[MarkovToken]) {
-    def ->(that: String) = markovs += MarkovToken(StringEscapeUtils.escapeJava(string), StringEscapeUtils.escapeJava(that))
+    def ->(that: String) = substitutions += MarkovToken(StringEscapeUtils.escapeJava(string), StringEscapeUtils.escapeJava(that))
+
+    def ->(that: EndStr) = substitutions += MarkovToken(StringEscapeUtils.escapeJava(string), StringEscapeUtils.escapeJava(that.string), true)
   }
 
-  implicit class endStr(string: String) {
-    def unary_!() = {
-      end set string
-      string
-    }
-  }
+  case class EndStr(string: String)
 
-
-  object end {
-    def set(end: String) = endStr = end
-
-    def apply(s: String => Unit) = s(endStr)
+  implicit class StrToEndStr(string: String) {
+    def unary_!() = EndStr(string)
   }
 
   object alphabet {
@@ -35,45 +29,31 @@ trait MarkovAppTrait /*extends App*/ {
     def >>(s: String => Unit) = s(alphabetStr)
   }
 
-
-  val Token_Stub = MarkovToken("", "")
   var alphabetStr = ""
 
-  var endStr = "$"
-  val empty = " "
-  implicit val markovs = ListBuffer.empty[MarkovToken]
+  implicit val substitutions = ListBuffer.empty[MarkovToken]
 
   def solve(input: String): String = {
-    def findSubstitution(input: String, markovs: List[MarkovToken]): Option[MarkovToken] = {
-      if (markovs.nonEmpty) {
-        if (input.contains(markovs.head.left))
-          Some(markovs.head)
-        else
-          findSubstitution(input, markovs.tail)
-      } else {
-        None
-      }
-    }
-    val markovList = markovs.toList
+    val takeSubs = (input: String, markovs: List[MarkovToken]) => markovs find (x => input.contains(x.left))
+    val markovList = substitutions.toList
+    val token = takeSubs(input, markovList)
+    val replace = (where: String, what: String, on: String) => StringUtils.replaceOnce(where, what, on)
+    val isEnd = (token: Option[MarkovToken]) => token.isEmpty || token.get.end
 
-    val firstToken = findSubstitution(input, markovs.toList)
-    if (firstToken.isEmpty) {
-      input
-    } else {
-      var buffer = input.replaceFirst(firstToken.get.left, firstToken.get.right)
-      var token = firstToken
-      var anySubs = true
-      while (token.isDefined && !(token.get.right contains endStr) && anySubs) {
-        val nextSubs = findSubstitution(buffer, markovList)
-        anySubs = nextSubs.isDefined
-        val subs = nextSubs getOrElse Token_Stub
-        buffer = StringUtils.replaceOnce(buffer, subs.left, subs.right)
-        token = nextSubs
-      }
-      buffer
-    }
+    lazy val calculate: Stream[Option[String]] = Some(replace(input, token.get.left, token.get.right)) #:: calculate.map({
+      case Some(str) =>
+        val token = takeSubs(str, markovList)
+        if (isEnd(token))
+          Option.empty[String]
+        else
+          Some(replace(str, token.get.left, token.get.right))
+      case None =>
+        None
+    })
+
+    calculate.takeWhile(_.isDefined).last.get
   }
 
-  def refresh: Unit = markovs.clear()
+  def refresh: Unit = substitutions.clear()
 
 }
